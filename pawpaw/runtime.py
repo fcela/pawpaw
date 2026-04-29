@@ -93,10 +93,12 @@ def _get_or_create_session(
     n_batch: int,
     n_ubatch: int | None,
     use_mlock: bool,
+    use_mmap: bool,
     numa: bool,
+    flash_attn: bool,
     verbose: bool,
 ) -> _Session:
-    key = (str(base_model_path), n_ctx, n_gpu_layers, n_threads, n_batch, n_ubatch, use_mlock, numa)
+    key = (str(base_model_path), n_ctx, n_gpu_layers, n_threads, n_batch, n_ubatch, use_mlock, use_mmap, numa, flash_attn)
     with _session_lock:
         sess = _sessions.get(key)
         if sess is not None:
@@ -113,7 +115,9 @@ def _get_or_create_session(
                 n_batch=n_batch,
                 n_ubatch=ubatch,
                 use_mlock=use_mlock,
+                use_mmap=use_mmap,
                 numa=numa,
+                flash_attn=flash_attn,
                 verbose=verbose,
             )
 
@@ -295,7 +299,9 @@ class Program:
         n_batch: int = 512,
         n_ubatch: int | None = None,
         use_mlock: bool = False,
+        use_mmap: bool = True,
         numa: bool = False,
+        flash_attn: bool = True,
         verbose: bool = False,
         base_model_path: str | Path | None = None,
     ):
@@ -320,8 +326,8 @@ class Program:
 
         self._session = _get_or_create_session(
             base_path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, n_threads=n_threads,
-            n_batch=n_batch, n_ubatch=n_ubatch, use_mlock=use_mlock, numa=numa,
-            verbose=verbose,
+            n_batch=n_batch, n_ubatch=n_ubatch, use_mlock=use_mlock, use_mmap=use_mmap,
+            numa=numa, flash_attn=flash_attn, verbose=verbose,
         )
 
         adapter_path = self._bundle_dir / "adapter.gguf"

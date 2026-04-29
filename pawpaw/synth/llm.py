@@ -98,6 +98,7 @@ class LlamaCppLLM:
         n_threads: int | None = None,
         n_batch: int = 512,
         n_gpu_layers: int | None = None,
+        flash_attn: bool = True,
     ):
         self._model_path = str(model_path)
         self._n_ctx = n_ctx
@@ -105,6 +106,7 @@ class LlamaCppLLM:
         self._n_threads = n_threads
         self._n_batch = n_batch
         self._n_gpu_layers = n_gpu_layers
+        self._flash_attn = flash_attn
         self._llama: Any | None = None
 
     def _ensure_loaded(self) -> None:
@@ -123,6 +125,7 @@ class LlamaCppLLM:
             n_threads=n_threads,
             n_batch=self._n_batch,
             n_gpu_layers=n_gpu,
+            flash_attn=self._flash_attn,
             verbose=False,
         )
 
