@@ -102,10 +102,10 @@ Set the `PAWPAW_CACHE` environment variable to use a different cache location.
 
 ## Tutorial
 
-See [`tutorial.ipynb`](https://github.com/pawpaw-dev/pawpaw/blob/main/tutorial.ipynb)
+See [`tutorial.ipynb`](https://github.com/fcela/pawpaw/blob/main/tutorial.ipynb)
 for a 7-section walkthrough covering build + save, load + call, multi-program
 agents sharing a base model, long prompts, a speed comparison vs upstream, and
-hardware auto-detection.  [`how_it_works.ipynb`](https://github.com/pawpaw-dev/pawpaw/blob/main/how_it_works.ipynb) provides a more detailed explanation of the methodology aimed at readers not familiar with transformers, LoRA adapters or PEFT.
+hardware auto-detection.  [`how_it_works.ipynb`](https://github.com/fcela/pawpaw/blob/main/how_it_works.ipynb) provides a more detailed explanation of the methodology aimed at readers not familiar with transformers, LoRA adapters or PEFT.
 
 ## Benchmarks
 
