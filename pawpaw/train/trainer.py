@@ -90,7 +90,7 @@ def train_lora(
 
     lora_cfg = LoraConfig(
         r=config.lora_rank,
-        lora_alpha=config.lora_alpha,
+        lora_alpha=config.effective_alpha,
         lora_dropout=config.lora_dropout,
         target_modules=list(config.target_modules),
         task_type=TaskType.CAUSAL_LM,
