@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.ipynb_checkpoints/
+.pytest_cache/
+.virtual_documents/
+*.paw
+programs/
+.mcp.json
+training_output.log
+*.bin
+prefix_kv_cache.bin
