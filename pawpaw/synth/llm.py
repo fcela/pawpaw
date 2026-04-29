@@ -21,8 +21,27 @@ class LLM(Protocol):
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.DOTALL)
 
 
+def _parse_json_candidate(text: str) -> Any:
+    candidate = text.strip()
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text, i)
+            return value
+        except json.JSONDecodeError:
+            continue
+    raise json.JSONDecodeError("no JSON object or array found", text, 0)
+
+
 def parse_json_strict(text: str) -> Any:
-    """Parse JSON, tolerating a single ```...``` fenced block but nothing else fancy."""
+    """Parse JSON, tolerating fenced blocks and small-model leading/trailing chatter."""
     candidates = [text]
     match = _FENCE_RE.search(text)
     if match:
@@ -30,7 +49,7 @@ def parse_json_strict(text: str) -> Any:
     last_err: Exception | None = None
     for candidate in candidates:
         try:
-            return json.loads(candidate)
+            return _parse_json_candidate(candidate)
         except json.JSONDecodeError as e:
             last_err = e
     raise ValueError(
@@ -70,10 +89,21 @@ def complete_json_with_retry(
 class LlamaCppLLM:
     """Wraps llama-cpp-python. Lazy-loads the model on first call."""
 
-    def __init__(self, model_path: str | Path, *, n_ctx: int = 4096, seed: int = 42, n_gpu_layers: int = 0):
+    def __init__(
+        self,
+        model_path: str | Path,
+        *,
+        n_ctx: int = 4096,
+        seed: int = 42,
+        n_threads: int | None = None,
+        n_batch: int = 512,
+        n_gpu_layers: int | None = None,
+    ):
         self._model_path = str(model_path)
         self._n_ctx = n_ctx
         self._seed = seed
+        self._n_threads = n_threads
+        self._n_batch = n_batch
         self._n_gpu_layers = n_gpu_layers
         self._llama: Any | None = None
 
@@ -81,11 +111,18 @@ class LlamaCppLLM:
         if self._llama is not None:
             return
         from llama_cpp import Llama
+        from pawpaw.config import auto_n_threads
+
+        n_threads = self._n_threads if self._n_threads is not None else auto_n_threads()
+        n_gpu = self._n_gpu_layers if self._n_gpu_layers is not None else 0
+
         self._llama = Llama(
             model_path=self._model_path,
             n_ctx=self._n_ctx,
             seed=self._seed,
-            n_gpu_layers=self._n_gpu_layers,
+            n_threads=n_threads,
+            n_batch=self._n_batch,
+            n_gpu_layers=n_gpu,
             verbose=False,
         )
 

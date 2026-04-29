@@ -47,11 +47,15 @@ def build(
     save_to: str | Path,
     examples: Iterable[ExamplePair] | None = None,
     base_model: str = "Qwen/Qwen3-0.6B",
+    base_quant: str | None = None,
     rank: int = 16,
     epochs: int = 3,
     n_per_category: int = 30,
     min_examples: int = 100,
     llm_model_path: str | Path | None = None,
+    llm_n_threads: int | None = None,
+    llm_n_batch: int = 512,
+    llm_n_gpu_layers: int | None = None,
     force: bool = False,
 ) -> "CompileResult":
     """Build a pawpaw program from a natural-language spec.
@@ -69,6 +73,9 @@ def build(
             If you provide enough (>= min_examples), synthesis is skipped
             entirely and no `llm_model_path` is needed.
         base_model: HF model id for the interpreter. Default Qwen3-0.6B.
+        base_quant: Base model quantization: "Q4_K_M", "Q6_K", or "Q8_0".
+            Default "Q6_K". "Q4_K_M" saves ~25% memory with minimal quality
+            loss for classifiers.
         rank: LoRA rank. 16 is a reasonable default; raise for harder tasks.
         epochs: Training epochs. More epochs can improve accuracy but take longer.
         n_per_category: Number of synthetic examples to generate per category.
@@ -78,6 +85,11 @@ def build(
             `dedup_threshold` or raise `n_per_category`.
         llm_model_path: Path to a local GGUF file for the synthesis LLM.
             Required when you don't provide enough seed `examples`.
+        llm_n_threads: CPU threads for synthesis LLM. Defaults to physical
+            core count (capped at 8). Set PAWPAW_N_THREADS env var for global override.
+        llm_n_batch: Prompt eval batch size for synthesis LLM. Default 512.
+        llm_n_gpu_layers: GPU layers for synthesis LLM. "auto" uses GPU if
+            available, 0 forces CPU-only. Default "auto".
         force: If True, ignore cached datasets and adapters, forcing a fresh
             synthesis + training run. Useful when you've changed settings but
             the cache would otherwise reuse old results.
@@ -92,6 +104,10 @@ def build(
     from pawpaw.config import CompileOptions, SynthConfig, TrainConfig
     from pawpaw.pipeline import CompileResult, compile_spec
 
+    if base_quant is not None:
+        from pawpaw.runtime_cache import set_preferred_quant
+        set_preferred_quant(base_quant)
+
     paw_path = Path(save_to)
     if paw_path.suffix != ".paw":
         paw_path = paw_path.with_suffix(".paw")
@@ -99,12 +115,23 @@ def build(
 
     extra_examples = _normalize_examples(examples)
 
+    synth_n_gpu = llm_n_gpu_layers
+    if synth_n_gpu == "auto":
+        try:
+            import llama_cpp
+            synth_n_gpu = -1 if llama_cpp.llama_supports_gpu_offload() else 0
+        except Exception:
+            synth_n_gpu = 0
+
     options = CompileOptions(
         base_model=base_model,
         synth=SynthConfig(
             n_per_category=n_per_category,
             min_examples=min_examples,
             llm_model_path=str(llm_model_path) if llm_model_path else None,
+            llm_n_threads=llm_n_threads,
+            llm_n_batch=llm_n_batch,
+            llm_n_gpu_layers=synth_n_gpu,
         ),
         train=TrainConfig(
             lora_rank=rank,
@@ -150,10 +177,16 @@ def build(
 def load(
     path: str | Path,
     *,
-    n_ctx: int = 4096,
+    n_ctx: int = 1024,
     n_gpu_layers: int | str = "auto",
+    n_threads: int | None = None,
+    n_batch: int = 512,
+    n_ubatch: int | None = None,
+    use_mlock: bool = False,
+    numa: bool = False,
     verbose: bool = False,
     base_model_path: str | Path | None = None,
+    base_quant: str | None = None,
 ) -> "Program":
     """Load a pawpaw program from a `.paw` file or bundle directory.
 
@@ -166,13 +199,25 @@ def load(
             `.paw` files are extracted on first load and cached under
             `~/.cache/pawpaw/paw_bundles/` for fast subsequent loads.
         n_ctx: Context window size in tokens. Increase if you hit
-            "input too long" errors on long inputs. Default 4096.
+            "input too long" errors on long inputs. Default 1024.
         n_gpu_layers: Number of layers to offload to GPU. "auto" uses GPU
             if available, 0 forces CPU-only.
+        n_threads: Number of CPU threads for llama.cpp. Defaults to
+            physical core count (capped at 8) to avoid contention.
+            Set PAWPAW_N_THREADS env var for a global override.
+        n_batch: Prompt eval batch size. Larger values speed up prefix
+            processing but use more memory. Default 512.
+        n_ubatch: Micro-batch size for prompt eval. Defaults to n_batch.
+        use_mlock: Lock model weights in RAM to prevent paging. Recommended
+            on CPU-only servers to avoid latency spikes after idle.
+        numa: Enable NUMA-aware allocation for multi-socket CPU servers.
         verbose: If True, show llama.cpp debug output during loading.
         base_model_path: Override the base model GGUF path. By default, the
             model is looked up from the KNOWN_GGUFS registry or downloaded
             from HuggingFace (~400 MB on first use).
+        base_quant: Base model quantization level: "Q4_K_M", "Q6_K", or
+            "Q8_0". Default "Q6_K". "Q4_K_M" saves ~25% memory with minimal
+            quality loss for classifiers.
 
     Returns:
         A Program object that you call like a function.
@@ -182,12 +227,17 @@ def load(
         >>> triage("How are you?")
         'trivial'
     """
-    from pawpaw.runtime import DEFAULT_N_CTX, Program
+    from pawpaw.runtime import Program
 
-    if n_ctx == 4096:
-        n_ctx = DEFAULT_N_CTX
-    return Program(path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, verbose=verbose,
-                   base_model_path=base_model_path)
+    if base_quant is not None:
+        from pawpaw.runtime_cache import set_preferred_quant
+        set_preferred_quant(base_quant)
+
+    return Program(
+        path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, n_threads=n_threads,
+        n_batch=n_batch, n_ubatch=n_ubatch, use_mlock=use_mlock, numa=numa,
+        verbose=verbose, base_model_path=base_model_path,
+    )
 
 
 def clear_cache() -> None:

@@ -11,12 +11,37 @@ Performance notes:
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from pathlib import Path
 from typing import Sequence
 
 import torch
+
+
+def _disable_transformers_torchvision() -> None:
+    """Pawpaw is text-only; broken optional torchvision installs should not break PEFT."""
+    try:
+        import transformers.utils as transformers_utils
+        from transformers.utils import import_utils
+    except Exception:
+        return
+
+    def unavailable() -> bool:
+        return False
+
+    for fn_name in ("is_torchvision_available", "is_torchvision_v2_available"):
+        fn = getattr(import_utils, fn_name, None)
+        cache_clear = getattr(fn, "cache_clear", None)
+        if cache_clear is not None:
+            cache_clear()
+        setattr(import_utils, fn_name, unavailable)
+        setattr(transformers_utils, fn_name, unavailable)
+
+
+_disable_transformers_torchvision()
+
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
@@ -48,13 +73,13 @@ def train_lora(
     pairs: Sequence[Pair],
     config: TrainConfig,
     output_dir: Path,
-    max_length: int = 1024,
 ) -> Path:
     """Fine-tune a LoRA adapter on the given pairs. Returns the saved adapter directory."""
     _enable_determinism(config.seed)
 
     device = pick_device()
     dtype = pick_dtype(device)
+    max_length = config.max_length
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -124,14 +149,18 @@ def train_lora(
     )
 
     collator = DataCollatorForSeq2Seq(tokenizer, padding=True, label_pad_token_id=-100)
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=train_records,
-        eval_dataset=val_records or None,
-        data_collator=collator,
-        tokenizer=tokenizer,
-    )
+    trainer_kwargs = {
+        "model": model,
+        "args": args,
+        "train_dataset": train_records,
+        "eval_dataset": val_records or None,
+        "data_collator": collator,
+    }
+    if "processing_class" in inspect.signature(Trainer.__init__).parameters:
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    trainer = Trainer(**trainer_kwargs)
 
     trainer.train()
     model.save_pretrained(str(output_dir))

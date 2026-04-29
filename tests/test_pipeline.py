@@ -9,6 +9,36 @@ from pawpaw.pipeline import compile_spec, PipelineHooks
 from pawpaw.synth.examples import Pair
 
 
+def test_is_oom_does_not_match_words_containing_oom():
+    from pawpaw.pipeline import _is_oom
+
+    assert not _is_oom(RuntimeError("Could not import BloomPreTrainedModel"))
+
+
+def test_is_oom_matches_memory_errors():
+    from pawpaw.pipeline import _is_oom
+
+    class OutOfMemoryError(Exception):
+        pass
+
+    assert _is_oom(RuntimeError("CUDA out of memory"))
+    assert _is_oom(OutOfMemoryError())
+
+
+def test_has_adapter_files_requires_config_and_weights(tmp_path):
+    from pawpaw.pipeline import _has_adapter_files
+
+    peft_dir = tmp_path / "peft"
+    peft_dir.mkdir()
+    assert not _has_adapter_files(peft_dir)
+
+    (peft_dir / "adapter_config.json").write_text("{}")
+    assert not _has_adapter_files(peft_dir)
+
+    (peft_dir / "adapter_model.safetensors").write_bytes(b"")
+    assert _has_adapter_files(peft_dir)
+
+
 class StubLLM:
     """Deterministic stub that returns canned JSON for taxonomy and examples calls."""
 

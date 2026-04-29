@@ -24,7 +24,13 @@ def _default_make_llm(options) -> "LLM":
             "llm_model_path must be set to a local llama.cpp .gguf model for synthesis. "
             "For example: --llm-model ~/.cache/pawpaw/models/qwen3-4b-instruct-q4_k_m.gguf"
         )
-    return LlamaCppLLM(model_path=options.synth.llm_model_path, seed=options.synth.llm_seed)
+    return LlamaCppLLM(
+        model_path=options.synth.llm_model_path,
+        seed=options.synth.llm_seed,
+        n_threads=options.synth.llm_n_threads,
+        n_batch=options.synth.llm_n_batch,
+        n_gpu_layers=options.synth.llm_n_gpu_layers,
+    )
 
 
 def _default_train(*args, **kwargs) -> Path:
@@ -39,7 +45,22 @@ def _default_gguf(*args, **kwargs) -> Path:
 
 def _is_oom(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    return "out of memory" in msg or "oom" in msg or exc.__class__.__name__ == "OutOfMemoryError"
+    return (
+        exc.__class__.__name__ == "OutOfMemoryError"
+        or "out of memory" in msg
+        or "out-of-memory" in msg
+        or "outofmemoryerror" in msg
+    )
+
+
+def _has_adapter_files(peft_dir: Path) -> bool:
+    return (
+        (peft_dir / "adapter_config.json").is_file()
+        and (
+            (peft_dir / "adapter_model.safetensors").is_file()
+            or (peft_dir / "adapter_model.bin").is_file()
+        )
+    )
 
 
 def _train_with_oom_retry(hook, *, base_model, template, pairs, config, output_dir) -> Path:
@@ -154,7 +175,7 @@ def compile_spec(
     template = build_prompt_template(spec, demos=demos)
 
     peft_dir = layout.peft_dir(h)
-    if not force and peft_dir.exists() and any(peft_dir.iterdir()):
+    if not force and _has_adapter_files(peft_dir):
         logger.info("reusing cached adapter for spec_hash=%s (use force=True to re-train)", h[:12])
     else:
         if force and peft_dir.exists():

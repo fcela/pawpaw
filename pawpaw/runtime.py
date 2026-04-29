@@ -31,11 +31,11 @@ import llama_cpp
 from llama_cpp import Llama
 
 from pawpaw.runtime_cache import _cache_root, ensure_base_model_gguf
+from pawpaw.config import DEFAULT_N_CTX, auto_n_threads
 
 logger = logging.getLogger(__name__)
 
 PLACEHOLDER = "{INPUT_PLACEHOLDER}"
-DEFAULT_N_CTX = 4096
 
 
 # -----------------------------------------------------------------------------
@@ -44,7 +44,7 @@ DEFAULT_N_CTX = 4096
 # -----------------------------------------------------------------------------
 
 _session_lock = threading.RLock()
-_sessions: weakref.WeakValueDictionary[tuple[str, int, int], _Session] = weakref.WeakValueDictionary()
+_sessions: weakref.WeakValueDictionary[tuple, _Session] = weakref.WeakValueDictionary()
 
 
 def _auto_n_gpu_layers() -> int:
@@ -89,19 +89,31 @@ def _get_or_create_session(
     *,
     n_ctx: int,
     n_gpu_layers: int,
+    n_threads: int,
+    n_batch: int,
+    n_ubatch: int | None,
+    use_mlock: bool,
+    numa: bool,
     verbose: bool,
 ) -> _Session:
-    key = (str(base_model_path), n_ctx, n_gpu_layers)
+    key = (str(base_model_path), n_ctx, n_gpu_layers, n_threads, n_batch, n_ubatch, use_mlock, numa)
     with _session_lock:
         sess = _sessions.get(key)
         if sess is not None:
             return sess
+
+        ubatch = n_batch if n_ubatch is None else n_ubatch
 
         def _load():
             return Llama(
                 model_path=str(base_model_path),
                 n_ctx=n_ctx,
                 n_gpu_layers=n_gpu_layers,
+                n_threads=n_threads,
+                n_batch=n_batch,
+                n_ubatch=ubatch,
+                use_mlock=use_mlock,
+                numa=numa,
                 verbose=verbose,
             )
 
@@ -279,6 +291,11 @@ class Program:
         *,
         n_ctx: int = DEFAULT_N_CTX,
         n_gpu_layers: int | str = "auto",
+        n_threads: int | None = None,
+        n_batch: int = 512,
+        n_ubatch: int | None = None,
+        use_mlock: bool = False,
+        numa: bool = False,
         verbose: bool = False,
         base_model_path: str | Path | None = None,
     ):
@@ -292,6 +309,9 @@ class Program:
         if n_gpu_layers == "auto":
             n_gpu_layers = _auto_n_gpu_layers()
 
+        if n_threads is None:
+            n_threads = auto_n_threads()
+
         interpreter = self._meta.get("interpreter_model") or self._meta.get("interpreter") or "Qwen/Qwen3-0.6B"
         base_path = ensure_base_model_gguf(
             interpreter,
@@ -299,7 +319,9 @@ class Program:
         )
 
         self._session = _get_or_create_session(
-            base_path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, verbose=verbose,
+            base_path, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, n_threads=n_threads,
+            n_batch=n_batch, n_ubatch=n_ubatch, use_mlock=use_mlock, numa=numa,
+            verbose=verbose,
         )
 
         adapter_path = self._bundle_dir / "adapter.gguf"

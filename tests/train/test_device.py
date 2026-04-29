@@ -26,8 +26,12 @@ def test_pick_device_picks_mps_when_no_cuda(monkeypatch):
     assert pick_device() == "mps"
 
 
-@pytest.mark.parametrize("device,expected", [("cuda", "bfloat16"), ("mps", "float32"), ("cpu", "float32")])
+@pytest.mark.parametrize("device,expected", [("cuda", "bfloat16"), ("mps", "float16"), ("cpu", "float32")])
 def test_pick_dtype(device, expected):
     import torch
+    import os
+    monkeypatch_val = os.environ.get("PAWPAW_CPU_BF16")
+    if device == "cpu" and monkeypatch_val:
+        expected = "bfloat16" if monkeypatch_val == "1" else "float32"
     dtype = pick_dtype(device)
     assert dtype == getattr(torch, expected)

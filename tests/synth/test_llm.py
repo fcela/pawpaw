@@ -24,6 +24,11 @@ def test_parse_json_strict_extracts_fenced_block():
     assert parse_json_strict(text) == {"a": 2}
 
 
+def test_parse_json_strict_extracts_prefixed_object():
+    text = 'Just the JSON.\n{"a": 3}\nDone.'
+    assert parse_json_strict(text) == {"a": 3}
+
+
 def test_parse_json_strict_raises_on_garbage():
     with pytest.raises(ValueError):
         parse_json_strict("not json at all")

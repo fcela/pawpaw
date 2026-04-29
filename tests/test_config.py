@@ -1,4 +1,4 @@
-from pawpaw.config import CompileOptions, SynthConfig, TrainConfig
+from pawpaw.config import CompileOptions, SynthConfig, TrainConfig, auto_n_threads
 
 
 def test_compile_options_defaults():
@@ -12,6 +12,7 @@ def test_compile_options_defaults():
     assert opts.train.effective_alpha == 32
     assert opts.train.epochs == 3
     assert opts.train.target_modules == ("q_proj", "k_proj", "v_proj", "o_proj")
+    assert opts.train.max_length == 1024
 
 
 def test_synth_config_fingerprint_is_deterministic():
@@ -20,6 +21,13 @@ def test_synth_config_fingerprint_is_deterministic():
     assert a == b
     c = SynthConfig(n_per_category=50).fingerprint()
     assert a != c
+
+
+def test_synth_config_new_fields():
+    s = SynthConfig()
+    assert s.llm_n_threads is None
+    assert s.llm_n_batch == 512
+    assert s.llm_n_gpu_layers is None
 
 
 def test_compile_options_override():
@@ -44,3 +52,14 @@ def test_train_config_preset():
     custom = TrainConfig.preset("draft", epochs=2)
     assert custom.epochs == 2
     assert custom.lora_rank == 4
+
+
+def test_auto_n_threads_returns_positive():
+    n = auto_n_threads()
+    assert n >= 1
+    assert n <= 8
+
+
+def test_auto_n_threads_env_override(monkeypatch):
+    monkeypatch.setenv("PAWPAW_N_THREADS", "4")
+    assert auto_n_threads() == 4

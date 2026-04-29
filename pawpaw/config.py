@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from typing import Tuple
 
@@ -13,16 +14,42 @@ DEFAULT_GENERATION_CONFIG = {
     "top_k": 50,
 }
 
+DEFAULT_N_CTX = 1024
+
+
+def auto_n_threads() -> int:
+    """Return a sensible default thread count for llama.cpp on this machine.
+
+    Uses physical cores (not logical/hyperthreaded) to avoid contention.
+    Falls back to half of logical cores if physical count is unavailable.
+    Respects the PAWPAW_N_THREADS env var if set.
+    """
+    env = os.environ.get("PAWPAW_N_THREADS")
+    if env is not None:
+        return int(env)
+    try:
+        import psutil
+        physical = psutil.cpu_count(logical=False)
+        if physical and physical > 0:
+            return min(physical, 8)
+    except ImportError:
+        pass
+    logical = os.cpu_count() or 4
+    return max(1, min(logical // 2, 8))
+
 
 @dataclass(frozen=True)
 class SynthConfig:
     n_per_category: int = 30
     dedup_threshold: float = 0.85
     min_examples: int = 100
-    taxonomy_prompt_version: str = "v1"
-    examples_prompt_version: str = "v1"
+    taxonomy_prompt_version: str = "v2"
+    examples_prompt_version: str = "v2"
     llm_model_path: str | None = None
     llm_seed: int = 42
+    llm_n_threads: int | None = None
+    llm_n_batch: int = 512
+    llm_n_gpu_layers: int | None = None
 
     def fingerprint(self) -> str:
         payload = json.dumps(asdict(self), sort_keys=True).encode("utf-8")
@@ -48,6 +75,7 @@ class TrainConfig:
     learning_rate: float = 2e-4
     seed: int = 42
     val_fraction: float = 0.1
+    max_length: int = 1024
 
     @property
     def effective_alpha(self) -> int:

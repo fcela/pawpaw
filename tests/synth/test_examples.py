@@ -43,12 +43,26 @@ def test_generate_for_category_assigns_length_buckets():
     assert buckets == ["short", "medium", "long"]
 
 
+def test_generate_for_category_accepts_common_alternate_keys():
+    payload = json.dumps({"pairs": [{"request": "Can you fix this?", "label": "code"}]})
+    cat = Category("c", "d", 1.0)
+    with pytest.raises(KeyError):
+        generate_for_category("s", cat, StubLLM(payload), n_examples=1)
+
+
 def test_generate_all_iterates_categories_and_scales_by_weight():
     cats = [Category("a", "x", 1.0), Category("b", "y", 2.0)]
     llm = StubLLM(_payload(10), _payload(20))
-    pairs = generate_all("spec", cats, llm, n_per_category=10)
+    pairs = generate_all("spec", cats, llm, n_per_category=10, batch_size=1)
     assert len(pairs) == 30
     assert {p.category for p in pairs} == {"a", "b"}
+
+
+def test_generate_all_skips_bad_categories():
+    cats = [Category("bad", "x", 1.0), Category("good", "y", 1.0)]
+    pairs = generate_all("spec", cats, StubLLM(_payload(0), _payload(3)), n_per_category=3, batch_size=1)
+    assert len(pairs) == 3
+    assert {p.category for p in pairs} == {"good"}
 
 
 def test_generate_for_category_rejects_empty():
