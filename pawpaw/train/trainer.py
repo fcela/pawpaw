@@ -80,7 +80,7 @@ def train_lora(
         # SDPA is available in PyTorch 2.0+
         attn_implementation = "sdpa"
 
-    model_kwargs = {"torch_dtype": dtype, "trust_remote_code": True}
+    model_kwargs = {"dtype": dtype, "trust_remote_code": True}
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
 
