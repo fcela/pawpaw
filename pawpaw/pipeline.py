@@ -66,7 +66,7 @@ def _has_adapter_files(peft_dir: Path) -> bool:
 def _train_with_oom_retry(hook, *, base_model, template, pairs, config, output_dir) -> Path:
     try:
         return hook(base_model=base_model, template=template, pairs=pairs, config=config, output_dir=output_dir)
-    except Exception as e:
+    except (RuntimeError, MemoryError) as e:
         if not _is_oom(e):
             raise
         if config.per_device_batch_size <= 1:

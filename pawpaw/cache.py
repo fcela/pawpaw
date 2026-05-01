@@ -16,10 +16,11 @@ from typing import Iterable
 
 from pawpaw.config import CompileOptions
 from pawpaw.version import PIPELINE_VERSION
+from pawpaw.runtime_cache import _cache_root
 
 
 def _default_root() -> Path:
-    return Path(os.environ.get("PAWPAW_CACHE", Path.home() / ".cache" / "pawpaw"))
+    return _cache_root()
 
 
 @dataclass(frozen=True)

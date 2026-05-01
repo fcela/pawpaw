@@ -42,7 +42,7 @@ def _load_peft_dir(peft_dir: Path) -> tuple[dict[str, Any], dict[str, torch.Tens
     if weights_path.exists():
         raw = load_safetensors(str(weights_path))
     elif bin_path.exists():
-        raw = torch.load(str(bin_path), map_location="cpu")
+        raw = torch.load(str(bin_path), map_location="cpu", weights_only=True)
     else:
         raise FileNotFoundError(f"no adapter weights found in {peft_dir}")
 

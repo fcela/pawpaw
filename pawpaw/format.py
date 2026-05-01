@@ -2,21 +2,20 @@
 
 Binary-compatible with the upstream programasweights .paw v2 format:
 
-    [4 bytes] Magic: b"PAW\\x02"
-    [4 bytes] Version: uint32 little-endian
-    [4 bytes] Metadata length: uint32 little-endian
-    [N bytes] Metadata (JSON, UTF-8)
-    [M bytes] Tensors (safetensors blob)
+[4 bytes] Magic: b"PAW\\x02"
+[4 bytes] Version: uint32 little-endian
+[4 bytes] Metadata length: uint32 little-endian
+[N bytes] Metadata (JSON, UTF-8)
+[M bytes] Tensors (safetensors blob)
 
 The metadata schema mirrors what runtime expects:
-  - format_version, kind, interpreter_model, base_model, spec
-  - prefix_type, prefix_steps, num_layers, has_lora
-  - lora_config (rank, alpha, target_modules)
-  - generation_config
-  - source ("compiled" | "finetuned" | "peft" | "custom"), source_info
-  - examples, tags, description, author
-  - pseudo_program (optional discrete prompt prefix)
-  - prompt_token_ids (optional)
+- format_version, kind, interpreter_model, base_model, spec
+- prefix_type, prefix_steps, num_layers, has_lora
+- lora_config (rank, alpha, target_modules)
+- generation_config
+- source ("compiled" | "finetuned" | "peft" | "custom"), source_info
+- examples, tags, description, author
+- pseudo_program (optional discrete prompt prefix)
 """
 from __future__ import annotations
 
@@ -63,6 +62,9 @@ def save(filepath: str | Path, tensors: dict[str, Any], metadata: dict[str, Any]
         f.write(tensors_blob)
 
 
+_MAX_METADATA_LEN = 10 * 1024 * 1024  # 10 MB
+
+
 def load(filepath: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Read a .paw v2 file. Returns (tensors_dict, metadata)."""
     with open(filepath, "rb") as f:
@@ -73,7 +75,15 @@ def load(filepath: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if version != VERSION:
             raise ValueError(f"Unsupported .paw version: {version}")
         (metadata_len,) = struct.unpack("<I", f.read(4))
-        metadata = json.loads(f.read(metadata_len).decode("utf-8"))
+        if metadata_len > _MAX_METADATA_LEN:
+            raise ValueError(
+                f"metadata_len={metadata_len} exceeds {_MAX_METADATA_LEN} — "
+                f"file may be corrupt: {filepath}"
+            )
+        try:
+            metadata = json.loads(f.read(metadata_len).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise ValueError(f"corrupt metadata in {filepath}: {e}") from e
         tensors_blob = f.read()
 
     with tempfile.NamedTemporaryFile(delete=False) as tmp:

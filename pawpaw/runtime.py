@@ -20,7 +20,6 @@ import logging
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import weakref
 from dataclasses import dataclass, field
@@ -30,8 +29,8 @@ from typing import Any
 import llama_cpp
 from llama_cpp import Llama
 
-from pawpaw.runtime_cache import _cache_root, ensure_base_model_gguf
 from pawpaw.config import DEFAULT_N_CTX, auto_n_threads
+from pawpaw.runtime_cache import _cache_root, ensure_base_model_gguf
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ _sessions: weakref.WeakValueDictionary[tuple, _Session] = weakref.WeakValueDicti
 def _auto_n_gpu_layers() -> int:
     try:
         return -1 if llama_cpp.llama_supports_gpu_offload() else 0
-    except Exception:
+    except (AttributeError, OSError):
         return 0
 
 
@@ -76,7 +75,7 @@ class _Session:
     `active_program_id` lets callers skip redundant adapter/KV switches when
     the same program is invoked back-to-back.
     """
-    llama: Any
+    llama: Llama
     n_ctx: int
     n_gpu_layers: int
     base_model_path: str
@@ -104,24 +103,29 @@ def _get_or_create_session(
         if sess is not None:
             return sess
 
-        ubatch = n_batch if n_ubatch is None else n_ubatch
+    ubatch = n_batch if n_ubatch is None else n_ubatch
 
-        def _load():
-            return Llama(
-                model_path=str(base_model_path),
-                n_ctx=n_ctx,
-                n_gpu_layers=n_gpu_layers,
-                n_threads=n_threads,
-                n_batch=n_batch,
-                n_ubatch=ubatch,
-                use_mlock=use_mlock,
-                use_mmap=use_mmap,
-                numa=numa,
-                flash_attn=flash_attn,
-                verbose=verbose,
-            )
+    def _load():
+        return Llama(
+            model_path=str(base_model_path),
+            n_ctx=n_ctx,
+            n_gpu_layers=n_gpu_layers,
+            n_threads=n_threads,
+            n_batch=n_batch,
+            n_ubatch=ubatch,
+            use_mlock=use_mlock,
+            use_mmap=use_mmap,
+            numa=numa,
+            flash_attn=flash_attn,
+            verbose=verbose,
+        )
 
-        llama = _silence_stderr_during(_load, verbose)
+    llama = _silence_stderr_during(_load, verbose)
+
+    with _session_lock:
+        sess = _sessions.get(key)
+        if sess is not None:
+            return sess
         sess = _Session(llama=llama, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, base_model_path=str(base_model_path))
         _sessions[key] = sess
         return sess
@@ -144,12 +148,21 @@ def _paw_cache_dir() -> Path:
     return d
 
 
+_MAX_PAW_SIZE = 500 * 1024 * 1024  # 500 MB
+
+
 def _unpack_paw(paw_path: Path) -> Path:
     """Extract a .paw file into a bundle directory under the cache.
 
     The bundle directory is keyed by the file's SHA-256, so the same .paw
     is only unpacked once. Returns the bundle directory path.
     """
+    size = paw_path.stat().st_size
+    if size > _MAX_PAW_SIZE:
+        raise ValueError(
+            f".paw file too large: {size / 1024 / 1024:.0f} MB "
+            f"(max {_MAX_PAW_SIZE // 1024 // 1024} MB): {paw_path}"
+        )
     file_hash = hashlib.sha256(paw_path.read_bytes()).hexdigest()[:16]
     bundle_dir = _paw_cache_dir() / file_hash
     if bundle_dir.exists() and (bundle_dir / "meta.json").exists():
@@ -417,8 +430,8 @@ class Program:
                     sess.llama.input_ids[: self._n_prefix] = self._prefix_tokens
                     sess.active_program_id = self._id
                     return
-            except Exception:
-                logger.debug("KV cache load failed for %s, falling back to cold start", self._prefix_kv_path)
+            except (OSError, ValueError, ctypes.ArgumentError):
+                logger.warning("KV cache load failed for %s, falling back to cold start", self._prefix_kv_path)
 
         # Cold start: evaluate the prefix and save to disk for next time
         sess.llama.reset()
@@ -431,8 +444,8 @@ class Program:
                 token_array,
                 self._n_prefix,
             )
-        except Exception:
-            logger.debug("KV cache save failed for %s", self._prefix_kv_path)
+        except (OSError, ValueError):
+            logger.warning("KV cache save failed for %s", self._prefix_kv_path)
 
         sess.active_program_id = self._id
 

@@ -8,7 +8,7 @@ Performance notes:
 from __future__ import annotations
 
 import re
-from typing import Iterable, List
+from typing import Iterable
 
 from datasketch import MinHash, MinHashLSH
 
@@ -34,14 +34,14 @@ def _minhash(text: str, *, num_perm: int = 128) -> MinHash:
     return m
 
 
-def dedup(pairs: Iterable[Pair], *, threshold: float = 0.85) -> List[Pair]:
+def dedup(pairs: Iterable[Pair], *, threshold: float = 0.85) -> list[Pair]:
     """Drop pairs whose input is >threshold Jaccard-similar to any earlier pair's input."""
     pairs = list(pairs)
     if not pairs:
         return []
 
     lsh = MinHashLSH(threshold=threshold, num_perm=128)
-    out: List[Pair] = []
+    out: list[Pair] = []
     for i, pair in enumerate(pairs):
         m = _minhash(pair.input)
         if lsh.query(m):

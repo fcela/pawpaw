@@ -24,7 +24,7 @@ def _cpu_supports_bf16() -> bool:
     try:
         if hasattr(torch, "cpu") and hasattr(torch.cpu, "is_bf16_supported"):
             return bool(torch.cpu.is_bf16_supported())
-    except Exception:
+    except (AttributeError, RuntimeError):
         pass
     try:
         import subprocess
@@ -34,7 +34,7 @@ def _cpu_supports_bf16() -> bool:
         )
         if result.returncode == 0 and result.stdout.strip() == "1":
             return True
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return False
 

@@ -21,8 +21,10 @@ if label == "substantive":
 from pawpaw.api import build, clear_cache, load
 from pawpaw.pipeline import CompileResult
 from pawpaw.runtime import Program
+from pawpaw.version import __version__
 
-compile = build
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "build",
@@ -30,4 +32,5 @@ __all__ = [
     "Program",
     "CompileResult",
     "clear_cache",
+    "__version__",
 ]

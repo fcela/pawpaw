@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from typing import Tuple
 
 DEFAULT_GENERATION_CONFIG = {
     "max_new_tokens": 256,
@@ -68,7 +67,7 @@ class TrainConfig:
     lora_rank: int = 16
     lora_alpha: int | None = None
     lora_dropout: float = 0.05
-    target_modules: Tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
+    target_modules: tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
     epochs: int = 3
     per_device_batch_size: int = 4
     gradient_accumulation_steps: int = 4

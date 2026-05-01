@@ -25,6 +25,14 @@ That's it — no submodules, no C++ build step. Pure Python on top of
 [llama-cpp-python](https://github.com/abetlen/llama-cpp-python). Works on
 macOS (Metal), Linux + CUDA, and CPU-only hosts.
 
+For build-only or inference-only installs, use extras:
+
+```bash
+pip install "pawpaw[build]"   # includes torch, transformers, peft for training
+pip install "pawpaw[load]"    # includes torch, gguf for .paw loading only
+pip install "pawpaw[all]"     # everything + psutil for auto thread detection
+```
+
 ## The whole API
 
 ```python
@@ -46,7 +54,7 @@ pawpaw.build(
 
 # In your service / agent:
 triage = pawpaw.load("programs/triage.paw")
-mood = pawpaw.load("programs/mood.paw")    # shares the base model with triage
+mood = pawpaw.load("programs/mood.paw") # shares the base model with triage
 intent = pawpaw.load("programs/intent.paw") # shares the base model too
 
 label = triage(user_message) # e.g. "trivial"
@@ -57,6 +65,41 @@ if label == "substantive" and mood(user_message) == "frustrated":
 A `.paw` is a single file you can copy between machines, ship with your
 service, or hash-pin in CI. `pawpaw.load()` accepts a `.paw` file directly
 — no unpacking needed.
+
+## Performance tuning
+
+`pawpaw.load()` and `pawpaw.build()` accept several parameters for
+optimizing CPU performance:
+
+```python
+program = pawpaw.load(
+    "programs/triage.paw",
+    n_ctx=1024,          # context window (default 1024; classifiers rarely need more)
+    n_threads=4,         # CPU threads (default: physical cores, capped at 8)
+    n_batch=512,         # prompt eval batch size
+    flash_attn=True,     # flash attention — ~10x faster prompt eval on CPU (default)
+    use_mlock=True,      # lock weights in RAM (prevents paging on servers)
+    numa=True,           # NUMA-aware allocation for multi-socket servers
+    base_quant="Q4_K_M", # lighter base model (~25% less memory, minimal quality loss)
+)
+```
+
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| `n_threads` | physical cores (≤8) | Avoids contention from oversubscription. Override with `PAWPAW_N_THREADS` env var. |
+| `flash_attn` | `True` | ~10x faster prompt eval, ~2x lower p50 latency on CPU |
+| `n_ctx` | `1024` | Reduces memory vs the old default of 4096; classifiers use ~110-250 tokens |
+| `base_quant` | `"Q6_K"` | `"Q4_K_M"` saves ~25% memory; `"Q8_0"` gives higher quality. Override with `PAWPAW_BASE_QUANT` env var. |
+| `use_mlock` | `False` | Prevents OS paging out model weights — avoids latency spikes after idle |
+
+`pawpaw.build()` also accepts `llm_n_threads`, `llm_n_batch`, and
+`llm_n_gpu_layers` to control the synthesis LLM.
+
+## CPU bfloat16
+
+On CPUs with AVX512_BF16 or AMX instructions (Sapphire Rapids, Zen 4+, or
+Apple M2+), `pawpaw` automatically uses bfloat16 for training — roughly 2x
+faster than float32. Override with the `PAWPAW_CPU_BF16=0` or `=1` env var.
 
 ## How it works
 
@@ -100,12 +143,22 @@ pawpaw.clear_cache()
 
 Set the `PAWPAW_CACHE` environment variable to use a different cache location.
 
+## CLI
+
+```bash
+# Build a .paw program
+pawpaw build spec.txt --save-to programs/triage.paw --llm-model /path/to/model.gguf
+
+# Run a .paw program
+pawpaw run programs/triage.paw "How are you doing today?"
+```
+
 ## Tutorial
 
 See [`tutorial.ipynb`](https://github.com/fcela/pawpaw/blob/main/tutorial.ipynb)
-for a 7-section walkthrough covering build + save, load + call, multi-program
+for a walkthrough covering build + save, load + call, multi-program
 agents sharing a base model, long prompts, a speed comparison vs upstream, and
-hardware auto-detection.  [`how_it_works.ipynb`](https://github.com/fcela/pawpaw/blob/main/how_it_works.ipynb) provides a more detailed explanation of the methodology aimed at readers not familiar with transformers, LoRA adapters or PEFT.
+hardware auto-detection. [`how_it_works.ipynb`](https://github.com/fcela/pawpaw/blob/main/how_it_works.ipynb) provides a more detailed explanation of the methodology aimed at readers not familiar with transformers, LoRA adapters or PEFT.
 
 ## Benchmarks
 

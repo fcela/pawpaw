@@ -10,6 +10,7 @@ Users can override with environment variables or by passing an explicit path.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import NamedTuple
 
@@ -23,6 +24,7 @@ class GGUFRef(NamedTuple):
 
 _AVAILABLE_QUANTS = ("Q4_K_M", "Q6_K", "Q8_0")
 _preferred_quant: str | None = None
+_quant_lock = threading.Lock()
 
 
 def set_preferred_quant(quant: str) -> None:
@@ -32,8 +34,9 @@ def set_preferred_quant(quant: str) -> None:
     """
     if quant not in _AVAILABLE_QUANTS:
         raise ValueError(f"unknown quant {quant!r}; choose from {_AVAILABLE_QUANTS}")
-    global _preferred_quant
-    _preferred_quant = quant
+    with _quant_lock:
+        global _preferred_quant
+        _preferred_quant = quant
 
 
 def _effective_quant() -> str:
@@ -42,8 +45,10 @@ def _effective_quant() -> str:
         if env not in _AVAILABLE_QUANTS:
             raise ValueError(f"PAWPAW_BASE_QUANT={env!r}; choose from {_AVAILABLE_QUANTS}")
         return env
-    if _preferred_quant:
-        return _preferred_quant
+    with _quant_lock:
+        pq = _preferred_quant
+    if pq:
+        return pq
     return "Q6_K"
 
 

@@ -25,7 +25,7 @@ def _disable_transformers_torchvision() -> None:
     try:
         import transformers.utils as transformers_utils
         from transformers.utils import import_utils
-    except Exception:
+    except ImportError:
         return
 
     def unavailable() -> bool:
@@ -98,7 +98,7 @@ def train_lora(
 
         if is_flash_attn_2_available():
             attn_implementation = "flash_attention_2"
-    except Exception:
+    except ImportError:
         logger.debug("Flash Attention 2 not available, falling back to SDPA")
 
     if attn_implementation is None and hasattr(torch.nn.functional, "scaled_dot_product_attention"):

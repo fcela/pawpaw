@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-ExamplePair = tuple[str, str] | dict
+ExamplePair = tuple[str, str] | dict[str, str]
 
 
 def _normalize_examples(examples: ExamplePair | Iterable[ExamplePair] | None) -> list[dict]:
@@ -35,7 +35,9 @@ def _normalize_examples(examples: ExamplePair | Iterable[ExamplePair] | None) ->
         if isinstance(e, tuple) and len(e) == 2:
             out.append({"input": str(e[0]), "output": str(e[1])})
         elif isinstance(e, dict) and "input" in e and "output" in e:
-            out.append({"input": str(e["input"]), "output": str(e["output"])})
+            if not isinstance(e["input"], str) or not isinstance(e["output"], str):
+                raise TypeError(f"example dict values must be strings: {e!r}")
+            out.append({"input": e["input"], "output": e["output"]})
         else:
             raise TypeError(f"examples entries must be (input, output) tuples or dicts: {e!r}")
     return out
@@ -120,7 +122,7 @@ def build(
         try:
             import llama_cpp
             synth_n_gpu = -1 if llama_cpp.llama_supports_gpu_offload() else 0
-        except Exception:
+        except (ImportError, AttributeError, OSError):
             synth_n_gpu = 0
 
     options = CompileOptions(
